@@ -4,6 +4,7 @@ from jericho.template_action_generator import TemplateActionGenerator
 from jericho.util import *
 from jericho.defines import *
 import redis
+from textworld.core import EnvInfos
 
 def load_vocab_rev(env):
     vocab = {i+2: str(v) for i, v in enumerate(env.get_dictionary())}
@@ -197,14 +198,14 @@ class JeriWorld:
     def step(self, action):
         if self.jeri_style:
             if self.tw_games:
-                old_score = self._env.state.score
-                next_state = self._env.step(action)[0]
+                state = self._env.step(action)
                 s_action = re.sub(r'\s+', ' ', action.strip())
-                score = self._env.state.score
-                reward = score - old_score
+                # score = self._env.state.score
+                # reward = score - old_score
+                reward = state[0]['intermediate_reward']
                 self._world_changed = self._env._jericho._world_changed
-                return next_state.description, reward, (next_state.lost or next_state.won),\
-                  {'moves':next_state.moves, 'score':next_state.score}
+                return state[0].description, reward, state[2],\
+                  {'moves':state[0].moves, 'score':state[1]}
             else:
                 self._world_changed = self._env._world_changed
             return self._env.step(action)
@@ -446,12 +447,13 @@ class JerichoEnv:
         self.vocab_rev = None
 
     def create(self):
-        self.env = JeriWorld(self.rom_path, self.seed)
+        info = EnvInfos(objective=True,description=True,inventory=True,feedback=True,intermediate_reward=True,admissible_commands=True)
+        self.env = JeriWorld(self.rom_path, seed = self.seed, infos=info)
         self.bindings = self.env.bindings
         self.act_gen = self.env.act_gen
         self.vocab_rev = load_vocab_rev(self.env)
-        self.conn = redis.Redis(host='localhost', port=6379, db=0)
-        self.conn.flushdb()
+        '''self.conn = redis.Redis(host='localhost', port=6379, db=0)
+        self.conn.flushdb()'''
 
     def step(self, action):
         ob, reward, done, info = self.env.step(action)
@@ -469,7 +471,7 @@ class JerichoEnv:
                 info['inv'] = inv
                 self.env.set_state(save)
                 # Get the valid actions for this state
-                world_state_hash = self.env.get_world_state_hash()
+                '''world_state_hash = self.env.get_world_state_hash()
                 valid = self.conn.get(world_state_hash)
                 if valid is None:
                     objs = []
@@ -487,7 +489,8 @@ class JerichoEnv:
                     if valid:
                         valid = [eval(a).action for a in valid.split('/')]
                     else:
-                        valid = []
+                        valid = []'''
+                valid = self.env.get_valid_actions()
                 if len(valid) == 0:
                     valid = ['wait','yes','no']
                 info['valid'] = valid
@@ -507,7 +510,7 @@ class JerichoEnv:
         inv, _, _, _ = self.env.step('inventory')
         info['inv'] = inv
         self.env.set_state(save)
-        objs = []
+        '''objs = []
         for inter_objs in self.env._identify_interactive_objects().values():
             for obj in inter_objs:
                 objs.append(obj[0])
@@ -516,7 +519,8 @@ class JerichoEnv:
         valid_temps = self.env.find_valid_actions(acts)
         valid = []
         for tmp in valid_temps:
-            valid.append(tmp.action)
+            valid.append(tmp.action)'''
+        valid = self.env.get_valid_actions()
         info['valid'] = valid
         self.steps = 0
         return initial_ob, info
