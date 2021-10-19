@@ -13,6 +13,28 @@ def load_vocab_rev(env):
     vocab_rev = {v: idx for idx, v in vocab.items()}
     return vocab_rev
 
+import jericho
+import textworld
+import re
+from collections import defaultdict
+
+def _load_bindings_from_tw(state, story_file, seed):
+    bindings = {}
+    g1 = [re.sub('{.*?}', 'OBJ', s) for s in state.command_templates]
+    g = list(set([re.sub('go .*', 'go OBJ', s) for s in g1]))
+    g.remove('drop OBJ')
+    g.remove('examine OBJ')
+    g.remove('inventory')
+    g.remove('look')
+    bindings['grammar'] = ';'.join(g)
+    bindings['max_word_length'] = len(max(state.verbs + state.entities, key=len))
+    bindings['minimal_actions'] = '/'.join(state['extra.walkthrough'])
+    bindings['name'] = state['extra.uuid']
+    bindings['rom'] = story_file.split('/')[-1]
+    bindings['seed'] = seed
+    bindings['walkthrough'] = bindings['minimal_actions']
+    return bindings
+
 class TemplateActionGeneratorJeri:
     '''
     Generates actions using the template-action-space.
@@ -126,33 +148,11 @@ class TemplateActionGeneratorJeri:
                                     template_idx, [o1_id, o2_id]))
         return actions
 
-import jericho
-import textworld
-import re
-from collections import defaultdict
-
-def _load_bindings_from_tw(state, story_file, seed):
-    bindings = {}
-    g1 = [re.sub('{.*?}', 'OBJ', s) for s in state.command_templates]
-    g = list(set([re.sub('go .*', 'go OBJ', s) for s in g1]))
-    g.remove('drop OBJ')
-    g.remove('examine OBJ')
-    g.remove('inventory')
-    g.remove('look')
-    bindings['grammar'] = ';'.join(g)
-    bindings['max_word_length'] = len(max(state.verbs + state.entities, key=len))
-    bindings['minimal_actions'] = '/'.join(state['extra.walkthrough'])
-    bindings['name'] = state['extra.uuid']
-    bindings['rom'] = story_file.split('/')[-1]
-    bindings['seed'] = seed
-    bindings['walkthrough'] = bindings['minimal_actions']
-    return bindings
-
 class JeriWorld:
-    def __init__(self, story_file, seed=None, style='jericho', infos = None):
-        self.jeri_style = style.lower() == 'jericho'
-        if self.jeri_style:
-            self._env = textworld.start(story_file, infos=infos)
+    def __init__(self, story_file, seed=None, style='jericho', infos = None, env_id = None):
+        self.style = style.lower()
+        if self.style == 'jericho':
+            self._env = textworld.start(story_file)
             state = self._env.reset()
             self.tw_games = True
             self._seed = seed
@@ -165,19 +165,27 @@ class JeriWorld:
                 self._world_changed = self._env._world_changed
                 self.act_gen = self._env.act_gen
             else:
+                del self._env
+                if infos is None:
+                    infos = EnvInfos(objective=True,description=True,inventory=True,feedback=True,intermediate_reward=True,admissible_commands=True)
+                self._env = textworld.start(story_file, infos=infos)
+                self._env.reset()
                 self.bindings = _load_bindings_from_tw(state, story_file, seed)
                 self._world_changed = self._env._jericho._world_changed
                 self.act_gen = TemplateActionGeneratorJeri(self.bindings)
                 self.seed(seed)
-        else:
+        elif self.style == 'textworld':
             self._env = textworld.start(story_file, infos=infos)
+        else:
+            self._env = gym.make(env_id)
+            self.observation_space = self._env.observation_space
 
     def __del__(self):
         del self._env
  
     
     def reset(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 state = self._env.reset()
                 raw = state['description']
@@ -187,7 +195,7 @@ class JeriWorld:
             return self._env.reset()
     
     def load(self, story_file, seed=None):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 self._env.load(story_file)
             else:
@@ -196,7 +204,7 @@ class JeriWorld:
             self._env.load(story_file)
 
     def step(self, action):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 state = self._env.step(action)
                 s_action = re.sub(r'\s+', ' ', action.strip())
@@ -213,13 +221,13 @@ class JeriWorld:
             return self._env.step(action)
 
     def bindings(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             return self.bindings
         else:
             return None
 
     def _emulator_halted(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 return self._env._env._emulator_halted()
             return self._env._emulator_halted()
@@ -227,7 +235,7 @@ class JeriWorld:
             return None
 
     def game_over(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 self._env.state['lost']
             return self._env.game_over()
@@ -235,7 +243,7 @@ class JeriWorld:
             return None
 
     def victory(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 self._env.state['won']
             return self._env.victory()
@@ -243,23 +251,32 @@ class JeriWorld:
             return None
 
     def seed(self, seed=None):
-        if self.jeri_style:
+        if self.style == 'jericho':
             self._seed = seed
             return self._env.seed(seed)
         else:
-            return None
+            return self._env.seed(seed)
     
-    def close(self):
-        if self.jeri_style:
-            self._env.close()
+    def render(self, mode="human"):
+        if self.style == 'gym':
+            return self._env.render(mode)
         else:
             pass
+
+    def unwrapped(self):
+        return self._env.unwrapped()
+
+    def close(self):
+        if self.style == 'jericho':
+            self._env.close()
+        else:
+            self._env.close()
 
     def copy(self):
         return self._env.copy()
 
     def get_walkthrough(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 return self._env.state['extra.walkthrough']
             return self._env.get_walkthrough()
@@ -267,7 +284,7 @@ class JeriWorld:
             return None
 
     def get_score(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 return self._env.state['score']
             return self._env.get_score()
@@ -275,7 +292,7 @@ class JeriWorld:
             return None
 
     def get_dictionary(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 state = self._env.state
                 return state.entities + state.verbs
@@ -285,7 +302,7 @@ class JeriWorld:
             return state.entities + state.verbs
 
     def get_state(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 return self._env._jericho.get_state()
             return self._env.get_state
@@ -293,7 +310,7 @@ class JeriWorld:
             return None
     
     def set_state(self, state):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 self._env._jericho.set_state(state)
             else:
@@ -302,7 +319,7 @@ class JeriWorld:
             pass
 
     def get_valid_actions(self, use_object_tree=True, use_ctypes=True, use_parallel=True):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 return self._env.state['admissible_commands']
             return self._env.get_valid_actions(use_object_tree, use_ctypes, use_parallel)
@@ -329,7 +346,7 @@ class JeriWorld:
         Zork1's brass latern which may be referred to either as *brass* or *lantern*.\
         This method groups all such aliases together into a list for each object.
         """
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 objs = set()
                 state = self.get_state()
@@ -375,7 +392,7 @@ class JeriWorld:
             return None
 
     def find_valid_actions(self, possible_acts=None):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 diff2acts = {}
                 state = self.get_state()
@@ -406,7 +423,7 @@ class JeriWorld:
 
     def _score_object_names(self, interactive_objs):
         """ Attempts to choose a sensible name for an object, typically a noun. """
-        if self.jeri_style:
+        if self.style == 'jericho':
             def score_fn(obj):
                 score = -.01 * len(obj[0])
                 if obj[1] == 'NOUN':
@@ -427,7 +444,7 @@ class JeriWorld:
             return None
 
     def get_world_state_hash(self):
-        if self.jeri_style:
+        if self.style == 'jericho':
             if self.tw_games:
                 return None
             else:

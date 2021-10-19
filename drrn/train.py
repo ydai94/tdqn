@@ -11,7 +11,7 @@ from drrn import DRRN_Agent
 from vec_env import VecEnv
 from env import JerichoEnv
 from jericho.util import clean
-
+import pandas as pd
 
 def configure_logger(log_dir):
     logger.configure(log_dir, format_strs=['log'])
@@ -62,6 +62,7 @@ def evaluate_episode(agent, env):
 
 
 def train(agent, eval_env, envs, max_steps, update_freq, eval_freq, checkpoint_freq, log_freq):
+    ep_scores = []
     start = time.time()
     obs, infos = envs.reset()
     states = agent.build_state(obs, infos)
@@ -73,6 +74,7 @@ def train(agent, eval_env, envs, max_steps, update_freq, eval_freq, checkpoint_f
         for done, info in zip(dones, infos):
             if done:
                 tb.logkv_mean('EpisodeScore', info['score'])
+                ep_scores.append(info['score'])
         next_states = agent.build_state(obs, infos)
         next_valids = [agent.encode(info['valid']) for info in infos]
         for state, act, rew, next_state, valids, done in \
@@ -94,7 +96,8 @@ def train(agent, eval_env, envs, max_steps, update_freq, eval_freq, checkpoint_f
             eval_score = evaluate(agent, eval_env)
             tb.logkv('EvalScore', eval_score)
             tb.dumpkvs()
-
+    df = pd.DataFrame({'episode_score': ep_scores})
+    df.to_csv('results.csv', index=False)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -128,7 +131,7 @@ def main():
     args = parse_args()
     print(args)
     configure_logger(args.output_dir)
-    # start_redis()
+    #start_redis()
     agent = DRRN_Agent(args)
     env = JerichoEnv(args.rom_path, args.seed, args.env_step_limit)
     envs = VecEnv(args.num_envs, env)
