@@ -131,7 +131,7 @@ def main():
     args = parse_args()
     print(args)
     configure_logger(args.output_dir)
-    #start_redis()
+    start_redis()
     agent = DRRN_Agent(args)
     env = JerichoEnv(args.rom_path, args.seed, args.env_step_limit)
     envs = VecEnv(args.num_envs, env)

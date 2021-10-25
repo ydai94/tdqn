@@ -165,7 +165,6 @@ class JeriWorld:
                 self._world_changed = self._env._world_changed
                 self.act_gen = self._env.act_gen
             else:
-                del self._env
                 if infos is None:
                     infos = EnvInfos(objective=True,description=True,inventory=True,feedback=True,intermediate_reward=True,admissible_commands=True)
                 self._env = textworld.start(story_file, infos=infos)
@@ -469,8 +468,8 @@ class JerichoEnv:
         self.bindings = self.env.bindings
         self.act_gen = self.env.act_gen
         self.vocab_rev = load_vocab_rev(self.env)
-        '''self.conn = redis.Redis(host='localhost', port=6379, db=0)
-        self.conn.flushdb()'''
+        self.conn = redis.Redis(host='localhost', port=6379, db=0)
+        self.conn.flushdb()
 
     def step(self, action):
         ob, reward, done, info = self.env.step(action)
@@ -488,7 +487,7 @@ class JerichoEnv:
                 info['inv'] = inv
                 self.env.set_state(save)
                 # Get the valid actions for this state
-                '''world_state_hash = self.env.get_world_state_hash()
+                world_state_hash = self.env.get_world_state_hash()
                 valid = self.conn.get(world_state_hash)
                 if valid is None:
                     objs = []
@@ -506,8 +505,8 @@ class JerichoEnv:
                     if valid:
                         valid = [eval(a).action for a in valid.split('/')]
                     else:
-                        valid = []'''
-                valid = self.env.get_valid_actions()
+                        valid = []
+                #valid = self.env.get_valid_actions()
                 if len(valid) == 0:
                     valid = ['wait','yes','no']
                 info['valid'] = valid
@@ -527,7 +526,7 @@ class JerichoEnv:
         inv, _, _, _ = self.env.step('inventory')
         info['inv'] = inv
         self.env.set_state(save)
-        '''objs = []
+        objs = []
         for inter_objs in self.env._identify_interactive_objects().values():
             for obj in inter_objs:
                 objs.append(obj[0])
@@ -536,8 +535,8 @@ class JerichoEnv:
         valid_temps = self.env.find_valid_actions(acts)
         valid = []
         for tmp in valid_temps:
-            valid.append(tmp.action)'''
-        valid = self.env.get_valid_actions()
+            valid.append(tmp.action)
+        #valid = self.env.get_valid_actions()
         info['valid'] = valid
         self.steps = 0
         return initial_ob, info
